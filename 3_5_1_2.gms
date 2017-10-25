@@ -3,14 +3,17 @@
 * "Complementarity Modeling in Energy Markets" by Steven A. Gabriel et al.
 * using EMP framework.
 *
-*  Example from Section 3.4.2.8 - Mixed Behaviors Firms 1 is Cournot, Firms 2 & 3 are price takers
-*  Results roughly map to Table 3.2.  There may be typos in the book.
+*  Example from Section 3.5.1.1 - Stackelberg MPEC with Firm 2 as the leader
+*  Results roughly map to Table 3.5.
+*
 * -----------------------------------------------------------------------
 
 $ONEMPTY
 
-SET i "firms" 					/ i1, i2, i3 /;
-SET b "production technology" 	/ b1, b2 /;
+SET i 				"firms" 					/ i1, i2, i3 /;
+SET b 				"production technology" 	/ b1, b2 /;
+SET isFollower(i) 	"defines following agents" 	/ i1, i3 /;
+SET isLeader(i)		"defines leader agents"	  	/ i2 /;
 
 
 ALIAS(i,ii);
@@ -71,7 +74,8 @@ PARAMETER beta  "inverse demand slope"     / 0.0000166666667 /;
 POSITIVE VARIABLE x(i,b) "production by firm i from process b";
 POSITIVE VARIABLE q      "demand quantity";
 
-VARIABLE obj(i) "objective value of firm i";
+VARIABLE obj(i) 	"objective value of follower firm i";
+VARIABLE leaderObj 	"objective value of leader";
 
 * Capacity constraint
 x.up(i,b) = K(i,b);
@@ -80,56 +84,58 @@ file empinfo / '%emp.info%' /;
 
 
 * -----------------------------------------------------------------------
-* Define and solve a game where firm 1 is Cournot and
-* firms 2 and 3 are price-takers.
+* Define and solve a game where firm 2 is a Stackelberg Leader and
+* firms 1 and 3 are price-takers (following agents).
 * -----------------------------------------------------------------------
 
-EQUATION objdef_OneCournot(i) 	"objective definition of firm i for Cournot-Nash game";
-EQUATION demand         		"market demand";
+EQUATION objdef(i) 		"objective definition";
+EQUATION demand        	"market demand";
 
-
-objdef_OneCournot(i)..
-    obj(i)
+objdef(i)..
+    obj(i)$(isFollower(i)) + leaderObj$(isLeader(i))
 	=E=
-    (sum(b, C(i,b)*x(i,b) - (alpha - beta*sum((ii,bb), x(ii,bb)))*x(i,b) ))$(ORD(i) = 1)
-	+
-	(sum(b, C(i,b)*x(i,b) - (alpha - beta*q)*x(i,b)))$(ORD(i) > 1);
+    (sum(b, C(i,b)*x(i,b) - (alpha - beta*sum((ii,bb), x(ii,bb)))*x(i,b)))$(isLeader(i))
+	+ (sum(b, C(i,b)*x(i,b) - (alpha - beta*q)*x(i,b)))$(isFollower(i));
 
 
 demand..
     q 
-	=E=
-	sum(i, sum(b, x(i,b)));
+	- sum(i, sum(b, x(i,b)))
+	=N=
+	0;
 	
 
-MODEL OneCournot / objdef_OneCournot, demand /;
+MODEL stack / objdef, demand /;
 
-PUT empinfo 'equilibrium';
-loop(i,
-    PUT / 'min', obj(i);
-    loop(b, PUT x(i,b));
-    PUT objdef_OneCournot(i);
-);
-PUT / 'vi demand q';
+PUT empinfo 'bilevel';
+loop(i$(isLeader(i)),
+	loop(b, PUT x(i,b))
+	)
+
+loop(i$(isFollower(i)),
+	PUT / 'min' obj(i) 
+	loop(b, PUT x(i,b)) 
+	PUT objdef(i);
+	)
+*PUT / 'vi demand q';
 PUTCLOSE empinfo;
+
+
 
 * -----------------------------------------------------------------------
 * The contents of this empinfo file look like this:
 * -----------------------------------------------------------------------
-* equilibrium
-* min obj('i1') x('i1','b1') x('i1','b2') objdef_OneCournot('i1')
-* min obj('i2') x('i2','b1') x('i2','b2') objdef_OneCournot('i2')
-* min obj('i3') x('i3','b1') x('i3','b2') objdef_OneCournot('i3')
-* vi demand q
+* bilevel x('i2','b1') x('i2','b2')
+* min obj('i1') x('i1','b1') x('i1','b2') objdef('i1')
+* min obj('i3') x('i3','b1') x('i3','b2') objdef('i3')
 * -----------------------------------------------------------------------
 
 
 * initial starting point
 x.l(i,b) = 0;
 
-SOLVE OneCournot using emp;
-
-STORE('OneCournot');
+SOLVE stack using emp minimizing leaderObj;
+STORE('stack');
 
 
 
@@ -141,5 +147,4 @@ OPTION firm_x:0:1:2;
 OPTION firm_sol:0:1:2;
 
 DISPLAY firm_x, firm_sol;
-
 
